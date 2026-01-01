@@ -13,17 +13,22 @@ Running multiple local projects at the same time is messy when everything wants 
 ## System overview
 
 `hack` is a Bun CLI that writes per-project Compose files under `.hack/` and manages a machine-wide
-proxy + logging stack under `~/.hack/`. Caddy routes `*.hack` based on container labels and the
-logging stack (Alloy + Loki + Grafana) captures Docker Compose logs.
+proxy, DNS helpers, and logging stack under `~/.hack/`.
+
+- **Caddy** (docker-proxy) routes `*.hack` based on container labels.
+- **CoreDNS** resolves `*.hack` inside containers to the Caddy IP.
+- **Alloy + Loki + Grafana** capture logs and provide history.
+- **Schemas** are served by Caddy at `https://schemas.hack`.
 
 ```mermaid
-flowchart LR
+graph LR
   CLI["hack CLI (Bun)"]
   Browser["Browser"]
 
   subgraph Host["Developer machine"]
     subgraph Global["Global infra (~/.hack)"]
       Caddy["Caddy docker-proxy"]
+      CoreDNS["CoreDNS"]
       Loki["Loki"]
       Grafana["Grafana"]
       Alloy["Alloy (Docker logs)"]
@@ -43,20 +48,46 @@ flowchart LR
   Services -->|"container logs"| Alloy
   Alloy --> Loki --> Grafana
 
+  CoreDNS -->|"*.hack → Caddy IP"| Services
   Caddy -->|"https://*.hack"| Browser
   Grafana -->|"https://logs.hack"| Browser
+  Caddy -->|"https://schemas.hack"| Browser
 ```
 
 ## Global vs project scope
 
 - Global scope (`~/.hack`)
-  - Caddy proxy listens on 80/443 and routes `https://*.hack` via Docker labels
-  - Logging stack captures all Compose logs (Alloy → Loki → Grafana)
+  - Caddy proxy on 80/443 (routes via Docker labels)
+  - CoreDNS for container DNS (`*.hack` → Caddy)
+  - macOS DNS helper: dnsmasq + `/etc/resolver` for `*.hack` → `127.0.0.1`
+  - Logging stack (Alloy → Loki → Grafana)
+  - Schemas hosted under `https://schemas.hack`
   - Networks: `hack-dev` (ingress) and `hack-logging`
 
 - Project scope (`.hack`)
-  - `docker-compose.yml` defines services and optional Caddy labels
+  - `docker-compose.yml` defines services + Caddy labels
   - `hack.config.json` stores project name, dev host, log preferences, OAuth alias
+  - Optional overrides:
+    - `.internal/compose.override.yml` (internal DNS/TLS injection)
+    - `.branch/compose.<branch>.override.yml` (branch builds)
+
+## Internal DNS + TLS (containers)
+
+When `internal.dns` / `internal.tls` are enabled, `hack up` writes a Compose override that:
+
+- sets each service’s DNS to the CoreDNS container
+- mounts Caddy’s local CA cert into each service
+- sets common SSL env vars (Node, curl, git, requests)
+
+This lets containers use the same `https://*.hack` hostnames as the host machine.
+
+```mermaid
+graph LR
+  Service["Project container"] -->|"DNS query *.hack"| CoreDNS["CoreDNS (hack-dev)"]
+  CoreDNS -->|"A record = Caddy IP"| Service
+  Service -->|"HTTPS request"| Caddy["Caddy docker-proxy"]
+  Caddy -->|"Routes by labels"| Upstream["Service upstream"]
+```
 
 ## Lifecycle (init → up → logs)
 
@@ -87,35 +118,57 @@ sequenceDiagram
 
 ## Logging pipeline
 
+`hack logs` supports two backends:
+
+- **compose**: fast, direct `docker compose logs`
+- **loki**: searchable history + LogQL filters
+
+NDJSON streaming (`hack logs --json`) emits `start`, `log`, and `end` events for MCP/TUI consumers.
+
 ```mermaid
-flowchart LR
+graph LR
   Containers["Compose containers"] -->|"stdout/stderr"| Alloy
   Alloy -->|"push"| Loki
   Loki -->|"query"| CLI["hack logs --loki"]
+  CLI -->|"NDJSON/pretty"| Terminal
   Loki -->|"Explore"| Grafana
-  CLI -->|"pretty output"| Terminal
 ```
+
+## Branch builds
+
+`--branch <name>` generates a per-branch Compose override that:
+
+- prefixes hostnames (e.g. `api.myapp.hack` → `api.<branch>.myapp.hack`)
+- prefixes the Compose project name
+
+This enables parallel worktrees without port or hostname collisions.
 
 ## Files and directories
 
 - `~/.hack/`
   - `caddy/docker-compose.yml`
+  - `caddy/Corefile` (CoreDNS config)
   - `logging/docker-compose.yml`
   - `logging/alloy.alloy`
   - `logging/loki.yaml`
   - `logging/grafana/...`
   - `schemas/hack.config.schema.json`
   - `schemas/hack.branches.schema.json`
+  - `certs/` (mkcert output for non-Caddy services)
   - `projects.json` (best-effort registry)
 
 - `<repo>/.hack/`
   - `docker-compose.yml`
   - `hack.config.json`
   - `hack.branches.json` (optional)
+  - `.internal/compose.override.yml`
+  - `.branch/compose.<branch>.override.yml`
 
 ## Key design choices
 
 - Docker Compose is the execution substrate for predictability and portability.
 - Caddy routes by container label so there is no per-repo reverse proxy config.
-- Logs default to `docker compose logs` for speed, with Loki for history and filtering.
+- CoreDNS gives containers the same `*.hack` namespace as the host.
+- Logs default to `docker compose logs` for speed; Loki is used for history and filtering.
 - Config lives alongside each repo in `.hack/` to keep repos isolated and portable.
+- Schemas are generated from templates and served locally for editor validation.

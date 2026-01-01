@@ -609,12 +609,12 @@ async function handleGlobalCert({
   readonly ctx: CliContext
   readonly args: GlobalCertArgs
 }): Promise<number> {
-  let mkcert = await findExecutableInPath("mkcert")
-  if (!mkcert && isMac()) {
+  let mkcertPath = await findExecutableInPath("mkcert")
+  if (!mkcertPath && isMac()) {
     await ensureMacMkcert()
-    mkcert = await findExecutableInPath("mkcert")
+    mkcertPath = await findExecutableInPath("mkcert")
   }
-  if (!mkcert) {
+  if (!mkcertPath) {
     logger.error({
       message:
         "mkcert is not installed. Install it to generate local certs.\nmacOS: brew install mkcert"
@@ -633,9 +633,19 @@ async function handleGlobalCert({
     typeof args.options.out === "string" ? resolve(ctx.cwd, args.options.out) : paths.certsDir
   await ensureDir(outDir)
 
+  if (!args.options.install) {
+    const hasLocalCa = await hasMkcertLocalCa({ mkcertPath })
+    if (!hasLocalCa) {
+      logger.warn({
+        message:
+          "mkcert local CA is not installed. Run `hack global cert --install` (or `mkcert -install`) to trust generated certs."
+      })
+    }
+  }
+
   if (args.options.install) {
     logger.step({ message: "Installing mkcert local CA…" })
-    const installExit = await run(["mkcert", "-install"], { stdin: "inherit" })
+    const installExit = await run([mkcertPath, "-install"], { stdin: "inherit" })
     if (installExit !== 0) return installExit
   }
 
@@ -644,9 +654,12 @@ async function handleGlobalCert({
   const keyPath = resolve(outDir, `${base}-key.pem`)
 
   logger.step({ message: "Generating cert with mkcert…" })
-  const exit = await run(["mkcert", "-cert-file", certPath, "-key-file", keyPath, ...hosts], {
-    stdin: "inherit"
-  })
+  const exit = await run(
+    [mkcertPath, "-cert-file", certPath, "-key-file", keyPath, ...hosts],
+    {
+      stdin: "inherit"
+    }
+  )
   if (exit !== 0) return exit
 
   note([`Cert: ${certPath}`, `Key: ${keyPath}`].join("\n"), "mkcert")
@@ -701,6 +714,20 @@ function sanitizeCertFileBase({ value }: { readonly value: string }): string {
   const cleaned = normalized.replaceAll(/[^a-z0-9-]/g, "-")
   const collapsed = cleaned.replaceAll(/-+/g, "-").replaceAll(/^-|-$/g, "")
   return collapsed.length > 0 ? collapsed : "cert"
+}
+
+async function hasMkcertLocalCa({
+  mkcertPath
+}: {
+  readonly mkcertPath: string
+}): Promise<boolean> {
+  const res = await exec([mkcertPath, "-CAROOT"], { stdin: "ignore" })
+  if (res.exitCode !== 0) return false
+  const caRoot = res.stdout.trim()
+  if (!caRoot) return false
+  const certPath = resolve(caRoot, "rootCA.pem")
+  const keyPath = resolve(caRoot, "rootCA-key.pem")
+  return (await pathExists(certPath)) && (await pathExists(keyPath))
 }
 
 async function ensureMacHackDns(): Promise<void> {

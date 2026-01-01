@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { basename, dirname, resolve, relative } from "node:path"
+import { basename, resolve, relative } from "node:path"
 import { mkdir, readdir, rm } from "node:fs/promises"
 
 import {
@@ -40,7 +40,14 @@ async function main({ args }: { readonly args: BuildArgs }): Promise<number> {
   const releaseRoot = args.outDirRaw
     ? resolve(repoRoot, args.outDirRaw)
     : resolve(distRoot, "release")
-  const releaseDir = resolve(releaseRoot, `hack-${version}`)
+  const target = resolveTarget()
+  if (!target) {
+    process.stderr.write(`Unsupported platform/arch: ${process.platform}/${process.arch}\n`)
+    return 1
+  }
+
+  const releaseDirName = `hack-${version}-release`
+  const releaseDir = resolve(releaseRoot, releaseDirName)
 
   if (!args.noClean) {
     await rm(releaseDir, { recursive: true, force: true })
@@ -95,7 +102,32 @@ async function main({ args }: { readonly args: BuildArgs }): Promise<number> {
   const checksumPath = resolve(releaseDir, "SHA256SUMS")
   await Bun.write(checksumPath, await renderChecksums({ root: releaseDir }))
 
-  process.stdout.write(`Release prepared at:\n  ${releaseDir}\n`)
+  const tarballName = `hack-${version}-${target.platform}-${target.arch}.tar.gz`
+  const tarballPath = resolve(releaseRoot, tarballName)
+  const tarExit = await run({
+    cmd: ["tar", "-czf", tarballPath, "-C", releaseRoot, releaseDirName],
+    cwd: repoRoot
+  })
+  if (tarExit !== 0) return tarExit
+
+  const downloadScriptName = `hack-${version}-install.sh`
+  const downloadScriptPath = resolve(releaseRoot, downloadScriptName)
+  const downloadScriptAltPath = resolve(releaseRoot, "hack-install.sh")
+  const downloadScript = renderDownloadInstallScript()
+  await Bun.write(downloadScriptPath, downloadScript)
+  await Bun.write(downloadScriptAltPath, downloadScript)
+  await chmodExecutable({ path: downloadScriptPath })
+  await chmodExecutable({ path: downloadScriptAltPath })
+
+  process.stdout.write(
+    [
+      "Release prepared:",
+      `  Dir: ${releaseDir}`,
+      `  Tarball: ${tarballPath}`,
+      `  Install script: ${downloadScriptPath}`,
+      `  Install script (latest): ${downloadScriptAltPath}`
+    ].join("\n") + "\n"
+  )
   return 0
 }
 
@@ -237,6 +269,13 @@ function renderInstallScript(): string {
     "  if [ \"$default\" = \"y\" ]; then",
     "    suffix=\"[Y/n]\"",
     "  fi",
+    "  if has_cmd gum; then",
+    "    if [ \"$default\" = \"y\" ]; then",
+    "      gum confirm \"$prompt\" && return 0 || return 1",
+    "    else",
+    "      gum confirm --default=false \"$prompt\" && return 0 || return 1",
+    "    fi",
+    "  fi",
     "  read -r -p \"$prompt $suffix \" reply",
     "  if [ -z \"$reply\" ]; then",
     "    reply=\"$default\"",
@@ -277,16 +316,129 @@ function renderInstallScript(): string {
     "",
     "echo \"Installed hack to $INSTALL_BIN/hack\"",
     "if [[ \":$PATH:\" != *\":$INSTALL_BIN:\"* ]]; then",
-    "  echo \"Add $INSTALL_BIN to PATH if needed.\"",
-    "  echo \"  export PATH=\\\"$INSTALL_BIN:\\$PATH\\\"\"",
+    "  if prompt_confirm \"Add hack to PATH by updating your shell config?\" \"y\"; then",
+    "    shell_name=\"$(basename \"${SHELL:-}\")\"",
+    "    if [ \"$shell_name\" = \"zsh\" ]; then",
+    "      rc_file=\"$HOME/.zshrc\"",
+    "    elif [ \"$shell_name\" = \"bash\" ]; then",
+    "      rc_file=\"$HOME/.bashrc\"",
+    "    else",
+    "      rc_file=\"$HOME/.profile\"",
+    "    fi",
+    "    line=\"export PATH=\\\"$INSTALL_BIN:\\$PATH\\\"\"",
+    "    assets_line=\"export HACK_ASSETS_DIR=\\\"$INSTALL_ASSETS\\\"\"",
+    "    if [ -f \"$rc_file\" ] && grep -Fq \"$line\" \"$rc_file\"; then",
+    "      :",
+    "    else",
+    "      echo \"$line\" >> \"$rc_file\"",
+    "    fi",
+    "    if [ -f \"$rc_file\" ] && grep -Fq \"$assets_line\" \"$rc_file\"; then",
+    "      :",
+    "    else",
+    "      echo \"$assets_line\" >> \"$rc_file\"",
+    "    fi",
+    "    export PATH=\"$INSTALL_BIN:$PATH\"",
+    "    export HACK_ASSETS_DIR=\"$INSTALL_ASSETS\"",
+    "  else",
+    "    echo \"Add $INSTALL_BIN to PATH if needed:\"",
+    "    echo \"  export PATH=\\\"$INSTALL_BIN:\\$PATH\\\"\"",
+    "  fi",
     "fi",
     "if [ -z \"${HACK_ASSETS_DIR:-}\" ]; then",
     "  echo \"Set assets path:\"",
     "  echo \"  export HACK_ASSETS_DIR=\\\"$INSTALL_ASSETS\\\"\"",
     "fi",
-    "echo \"Next: hack global install\"",
+    "if prompt_confirm \"Run 'hack global install' now?\" \"y\"; then",
+    "  \"$INSTALL_BIN/hack\" global install || true",
+    "else",
+    "  echo \"Next: hack global install\"",
+    "fi",
     ""
   ].join("\n")
+}
+
+function renderDownloadInstallScript(): string {
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "",
+    "REPO_OWNER=\"hack-dance\"",
+    "REPO_NAME=\"hack-cli\"",
+    "REPO=\"$REPO_OWNER/$REPO_NAME\"",
+    "API_URL=\"https://api.github.com/repos/$REPO/releases/latest\"",
+    "BASE_URL=\"${HACK_RELEASE_BASE_URL:-https://github.com/$REPO/releases/download}\"",
+    "",
+    "if [ -n \"${HACK_INSTALL_TAG:-}\" ]; then",
+    "  TAG=\"$HACK_INSTALL_TAG\"",
+    "elif [ -n \"${HACK_INSTALL_VERSION:-}\" ]; then",
+    "  TAG=\"v$HACK_INSTALL_VERSION\"",
+    "else",
+    "  TAG=$(curl -fsSL \"$API_URL\" | sed -n 's/.*\"tag_name\": \"\\([^\"]*\\)\".*/\\1/p' | head -n1)",
+    "fi",
+    "",
+    "if [ -z \"$TAG\" ]; then",
+    "  echo \"Failed to resolve release tag.\"",
+    "  exit 1",
+    "fi",
+    "",
+    "VERSION=\"${TAG#v}\"",
+    "OS=\"$(uname -s | tr '[:upper:]' '[:lower:]')\"",
+    "ARCH=\"$(uname -m)\"",
+    "if [ \"$ARCH\" = \"x86_64\" ] || [ \"$ARCH\" = \"amd64\" ]; then",
+    "  ARCH=\"x86_64\"",
+    "elif [ \"$ARCH\" = \"arm64\" ] || [ \"$ARCH\" = \"aarch64\" ]; then",
+    "  ARCH=\"arm64\"",
+    "else",
+    "  echo \"Unsupported architecture: $ARCH\"",
+    "  exit 1",
+    "fi",
+    "",
+    "if [ \"$OS\" != \"darwin\" ] && [ \"$OS\" != \"linux\" ]; then",
+    "  echo \"Unsupported OS: $OS\"",
+    "  exit 1",
+    "fi",
+    "",
+    "TARBALL=\"hack-$VERSION-$OS-$ARCH.tar.gz\"",
+    "URL=\"$BASE_URL/$TAG/$TARBALL\"",
+    "",
+    "tmpdir=$(mktemp -d)",
+    "cleanup() { rm -rf \"$tmpdir\"; }",
+    "trap cleanup EXIT",
+    "",
+    "echo \"Downloading $URL\"",
+    "curl -fsSL \"$URL\" -o \"$tmpdir/$TARBALL\"",
+    "tar -xzf \"$tmpdir/$TARBALL\" -C \"$tmpdir\"",
+    "",
+    "INSTALL_DIR=\"$tmpdir/hack-$VERSION-release\"",
+    "if [ ! -d \"$INSTALL_DIR\" ]; then",
+    "  echo \"Missing release directory: $INSTALL_DIR\"",
+    "  exit 1",
+    "fi",
+    "",
+    "bash \"$INSTALL_DIR/install.sh\"",
+    ""
+  ].join("\n")
+}
+
+type ReleaseTarget = {
+  readonly platform: string
+  readonly arch: string
+}
+
+function resolveTarget(): ReleaseTarget | null {
+  const platform =
+    process.platform === "darwin" ? "darwin"
+    : process.platform === "linux" ? "linux"
+    : null
+  if (!platform) return null
+
+  const arch =
+    process.arch === "arm64" ? "arm64"
+    : process.arch === "x64" ? "x86_64"
+    : null
+  if (!arch) return null
+
+  return { platform, arch }
 }
 
 async function renderChecksums({ root }: { readonly root: string }): Promise<string> {

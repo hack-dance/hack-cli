@@ -4,7 +4,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/othneildrew/Best-README-Template">
-    <img src="hacker-mash.gif" alt="Logo" width="600">
+    <img src="assets/hacker-mash.gif" alt="Logo" width="600">
   </a>
 
   <h3 align="center">hack</h3>
@@ -14,14 +14,19 @@
     <br />
   </p>
 </div>
-<br />
-<br />
 
-- **Network isolation per repo / branch**: every instance runs on its own Docker network (so Postgres/Redis/etc can stay on default ports *inside* the project).
-- **Stable HTTPS hostnames**: `https://<project>.hack` (and subdomains like `https://api.<project>.hack`) routed by a global Caddy proxy.
-- **Good logs UX**: instant `docker compose logs` tailing, plus Loki/Grafana for querying + history.
-- **Opt-in per repo**: no invasive changes to your codebase; config lives in `.hack/`.
+---
 
+
+**Network isolation per repo / branch**: every instance runs on its own Docker network (so Postgres/Redis/etc can stay on default ports *inside* the project).
+
+**Stable HTTPS hostnames**: `https://<project>.hack` (and subdomains like `https://api.<project>.hack`) routed by a global Caddy proxy.
+
+**Good logs UX**: instant `docker compose logs` tailing, plus Loki/Grafana for querying + history.
+
+**Opt-in per repo**: no invasive changes to your codebase; config lives in `.hack/`.
+
+---
 
 ### Why this exists
 
@@ -42,14 +47,19 @@ The daily choice:
 Neither scales. Both slow you down in dumb, repeatable ways.
 
 
-## Quickstart
+## Installation
 
 ### Prerequisites
-- **Docker** (OrbStack works great)
-- **macOS**:
-  - `hack global install` will optionally set up `dnsmasq` so `*.hack` resolves locally
-  - `hack global trust` can trust Caddy’s local CA so HTTPS is clean
+- **macOS**: more support planned.
+- **Docker + Compose**: [Orbstack](https://docs.orbstack.dev/quick-start) | [Docker Desktop](https://www.docker.com/get-started/) 
 
+### Install
+
+Grab the install script
+
+```bash
+  curl link to release/install.sh
+```
 
 ### Setup
 ```bash
@@ -110,7 +120,8 @@ hack config set logs.snapshot_backend "compose"
 - **Projects**: `hack projects|prune`
 - **Status**: `hack status` (shortcut for `hack projects --details`)
 - **Branch**: `hack branch add|list|remove|open`
-- **Diagnostics**: `hack doctor`
+- **Diagnostics**: `hack doctor|log-pipe`
+- **Secrets**: `hack secrets get|set|delete`
 - **Crash override**: `hack the planet`
 
 Run `hack help <command>` for detailed help.
@@ -178,60 +189,6 @@ If you need host access for debugging, prefer `docker compose exec` so you don�
 docker compose -f .hack/docker-compose.yml exec db psql -U postgres -d mydb
 docker compose -f .hack/docker-compose.yml exec redis redis-cli
 ```
-
-
-## DB schema tooling (ORM or otherwise)
-
-Because `hack` intentionally avoids publishing DB ports to your host (so you can run many projects concurrently),
-the best pattern is to run schema commands inside the compose network.
-
-### Option A (recommended): ops-only service
-
-Add a one-shot service to `.hack/docker-compose.yml` (adjust paths for your project):
-
-```yaml
-db-ops:
-  image: imbios/bun-node:latest
-  working_dir: /app/packages/db # where your db schema + package.json live
-  volumes:
-    - ..:/app
-  environment:
-    DATABASE_URL: postgres://postgres:postgres@db:5432/mydb
-  depends_on:
-    - db
-  networks:
-    - default
-  profiles: ["ops"]
-  # Examples:
-  # - Prisma:  bunx prisma migrate deploy
-  # - Drizzle: bunx drizzle-kit push
-  command: bun run db:push
-```
-
-Run it on demand:
-
-```bash
-docker compose -f .hack/docker-compose.yml --profile ops run --rm db-ops
-```
-
-### Option B: run arbitrary commands via `hack run`
-
-`hack run` is a thin wrapper over `docker compose run --rm` that automatically targets the right repo:
-
-```bash
-hack run --workdir /app/packages/db email-sync -- bunx prisma generate
-hack run --workdir /app/packages/db email-sync -- bunx prisma migrate dev
-hack run --workdir /app/packages/db email-sync -- bunx drizzle-kit push
-hack run --workdir /app bun run turbo db:migrate
-```
-
-If your ops service is behind a compose profile, enable it:
-
-```bash
-hack run --profile ops --workdir /app/packages/db db-ops -- bun run db:push
-```
-
-
 
 ## Logs (why both Compose and Loki)
 
@@ -348,6 +305,9 @@ Use `--out <dir>` if you want certs written somewhere else.
 CoreDNS answers `*.hack` and `*.hack.*` with Caddy’s IP so containers can use the same `https://*.hack`
 URLs as the host. All other DNS is forwarded to Docker’s resolver.
 
+When `internal.tls` is enabled, `hack up` mounts the Caddy Local CA into each container and sets common
+SSL env vars so HTTPS to `*.hack` is trusted inside containers.
+
 If you created the `hack-dev` network before this feature, recreate it once so the static IPs can be
 assigned (better runtime compatibility):
 
@@ -357,6 +317,7 @@ hack global install
 ```
 
 If you update `hack`, rerun `hack global install` once to refresh the CoreDNS config.
+
 
 
 
@@ -382,7 +343,6 @@ Hostnames scale. Ports don’t.
 There isn’t an off-the-shelf tool that gives you full local network isolation, real HTTPS, and near zero per-repo setup.
 
 If you want that, you have to build it yourself.
-
 
 
 ## How it works
@@ -413,6 +373,116 @@ Your code doesn’t change. Your mental overhead does.
 - `.hack/hack.config.json`: project config (name, dev host, log preferences)
 
 Each project’s compose network stays isolated; only services you want “public” get attached to the shared ingress network so Caddy can reach them.
+
+
+## Common patterns (deps + ops)
+
+### 1) Containerized dependency installs (recommended)
+
+If you run `bun install` on the host and then start Linux containers, you can hit platform
+mismatches (native modules, postinstall scripts, OS-specific binaries). The clean pattern is to
+install dependencies **inside** Docker and share them via a volume.
+
+Add a one-shot deps service and make your app services depend on it:
+
+```yaml
+deps:
+  image: imbios/bun-node:latest
+  working_dir: /app
+  volumes:
+    - ..:/app
+    - node_modules:/app/node_modules
+  command: bun install
+  networks:
+    - default
+
+www:
+  image: imbios/bun-node:latest
+  working_dir: /app/apps/www
+  volumes:
+    - ..:/app
+    - node_modules:/app/node_modules
+  depends_on:
+    deps:
+      condition: service_completed_successfully
+```
+
+This keeps dependency resolution in the same OS as your containers and avoids host/guest drift.
+
+### 2) Networked ops commands (DB schema tooling, migrations)
+
+Because `hack` avoids publishing DB ports to your host, run schema/ops commands inside the
+compose network.
+
+Option A (recommended): add an ops-only service:
+
+```yaml
+db-ops:
+  image: imbios/bun-node:latest
+  working_dir: /app/packages/db # where your db schema + package.json live
+  volumes:
+    - ..:/app
+    - node_modules:/app/node_modules
+  environment:
+    DATABASE_URL: postgres://postgres:postgres@db:5432/mydb
+  depends_on:
+    - db
+    - deps
+  networks:
+    - default
+  profiles: ["ops"]
+  # Examples:
+  # - Prisma:  bunx prisma migrate deploy
+  # - Drizzle: bunx drizzle-kit push
+  command: bun run db:push
+```
+
+Run it on demand:
+
+```bash
+docker compose -f .hack/docker-compose.yml --profile ops run --rm db-ops
+```
+
+Option B: run via `hack run` (thin wrapper over `docker compose run --rm`):
+
+```bash
+hack run --workdir /app/packages/db email-sync -- bunx prisma generate
+hack run --workdir /app/packages/db email-sync -- bunx prisma migrate dev
+hack run --workdir /app/packages/db email-sync -- bunx drizzle-kit push
+hack run --workdir /app bun run turbo db:migrate
+```
+
+If your ops service is behind a compose profile, enable it:
+
+```bash
+hack run --profile ops --workdir /app/packages/db db-ops -- bun run db:push
+```
+
+See examples:
+- `examples/next-app/README.md`
+
+
+## Troubleshooting
+
+- `*.hack` doesn’t resolve: run `hack doctor`, then `hack global install` (macOS: ensure dnsmasq is running).
+
+- Stale global setup / CoreDNS issues: run `hack doctor --fix` (refreshes network + CoreDNS + CA).
+
+- TLS warnings: run `hack global trust` (macOS).
+
+- Logs missing in Grafana: ensure Alloy is running (`hack global status`) and try `{app="docker"}` in Explore.
+
+- `ENOTFOUND` for `*.hack`/`*.hack.gy` inside containers: refresh CoreDNS config with `hack global install`,
+  then restart CoreDNS: `docker compose -f ~/.hack/caddy/docker-compose.yml restart coredns`.
+
+- `EAI_AGAIN` for external domains inside containers (e.g. `api.clerk.com`): CoreDNS isn’t forwarding.
+  Run `hack global install` and restart CoreDNS as above.
+
+- `hack global up` warns about `hack-dev` network labels or missing subnet: remove the network and reinstall:
+  `docker network rm hack-dev` then `hack global install`.
+
+- OAuth redirect errors: use the OAuth alias host (`*.hack.gy`) or `localhost` (providers may reject non-public suffixes like `.hack`).
+
 
 
 ## Development
@@ -461,6 +531,15 @@ bun dev --help
 bun test
 ```
 
+### Conventional commits
+
+```bash
+bun run commit
+```
+
+Commitlint runs on `git commit` via husky, and semantic-release uses Conventional Commits to
+compute versions.
+
 ### Build a standalone binary
 
 ```bash
@@ -473,71 +552,24 @@ bun run build
 ```bash
 bun run build:release
 ```
-Produces `dist/release/hack-<version>/` with `install.sh`, assets, and checksums.
+Produces `dist/release/hack-<version>-release/`, a tarball, and `hack-install.sh`.
 
-### Packaging note (gum)
+### Release (tag + GitHub workflow)
 
-The repo ships gum tarballs under `binaries/gum/`. In packaged builds, ship `binaries/` alongside the binary (or set `HACK_ASSETS_DIR`).
+```bash
+bun run release:prepare
+git push --follow-tags
+```
+
+Updates `CHANGELOG.md` + `package.json`, creates the release commit and tag, and triggers the
+GitHub Release workflow on push.
 
 See `PACKAGING.md` for details.
 
 
-## Troubleshooting
+See also:
+- [Examples](examples/next-app/README.md)
+- [Architecture](ARCHITECTURE.md)
 
-- `*.hack` doesn’t resolve: run `hack doctor`, then `hack global install` (macOS: ensure dnsmasq is running).
-
-- Stale global setup / CoreDNS issues: run `hack doctor --fix` (refreshes network + CoreDNS + CA).
-
-- TLS warnings: run `hack global trust` (macOS).
-
-- Logs missing in Grafana: ensure Alloy is running (`hack global status`) and try `{app="docker"}` in Explore.
-
-- `ENOTFOUND` for `*.hack`/`*.hack.gy` inside containers: refresh CoreDNS config with `hack global install`,
-  then restart CoreDNS: `docker compose -f ~/.hack/caddy/docker-compose.yml restart coredns`.
-
-- `EAI_AGAIN` for external domains inside containers (e.g. `api.clerk.com`): CoreDNS isn’t forwarding.
-  Run `hack global install` and restart CoreDNS as above.
-
-- `hack global up` warns about `hack-dev` network labels or missing subnet: remove the network and reinstall:
-  `docker network rm hack-dev` then `hack global install`.
-
-- OAuth redirect errors: use the OAuth alias host (`*.hack.gy`) or `localhost` (providers may reject non-public suffixes like `.hack`).
-
-- Dependecy mismatch errors: when installing dependices on your local machine (say mac os) you may have pre or post install scripts or env specific installs, trying to run you projects in a linux container with those same dependices can produce a numebr of weird depndcy issues. Common solution here is to create a shared dep service in your docker-compose:
-```
-  deps:
-    image: imbios/bun-node:latest
-    working_dir: /app
-    volumes:
-      - ..:/app
-      - node_modules:/app/node_modules
-    command: bun install
-    networks:
-      - default
-```
-then make sure your other depndent services mount the same volume and wait for it to complete
-```
-  www:
-    image: imbios/bun-node:latest
-    working_dir: /app/apps/www
-    volumes:
-      - ..:/app
-      - node_modules:/app/node_modules
-    command: bun run dev -- -p 3000 -H 0.0.0.0
-    environment:
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHPACK_POLLING: "true"
-      IS_LOCAL: "1"
-    labels:
-      caddy: "myapp.hack, myapp.hack.gy"
-      caddy.reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: internal
-    networks:
-      - hack-dev
-      - default
-    depends_on:
-      deps:
-        condition: service_completed_successfully
-```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>

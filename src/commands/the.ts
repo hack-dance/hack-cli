@@ -20,14 +20,15 @@ const optVariant = defineOption({
   long: "--variant",
   valueHint: "<cut|mash|cycle|random>",
   description: "Animation variant",
-  defaultValue: "random"
+  defaultValue: "cycle"
 } as const)
 
 const optLoop = defineOption({
   name: "loop",
   type: "boolean",
   long: "--loop",
-  description: "Loop until Ctrl+C"
+  description: "Loop until Ctrl+C",
+  defaultValue: "true"
 } as const)
 
 const planetOptions = [optVariant, optLoop] as const
