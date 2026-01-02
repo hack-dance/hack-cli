@@ -46,10 +46,10 @@ jobs:
           - os: ubuntu-latest
             upload_install: true
             skip_tests: false
-          - os: macos-14
+          - os: macos-15
             upload_install: false
             skip_tests: true
-          - os: macos-13
+          - os: macos-15-large
             upload_install: false
             skip_tests: true
     steps:
