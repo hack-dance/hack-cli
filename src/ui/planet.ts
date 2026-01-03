@@ -378,7 +378,7 @@ function buildChafaLayout(opts: { readonly cols: number; readonly rows: number }
 
   const gap = 2
   const desiredPanelWidth = Math.min(34, Math.max(24, Math.floor(innerWidth * 0.26)))
-  let panelWidth = innerWidth >= 90 ? desiredPanelWidth : 0
+  const panelWidth = innerWidth >= 90 ? desiredPanelWidth : 0
   let contentCols = innerWidth
   let panel: ChafaPanel | null = null
 
@@ -518,7 +518,7 @@ function startPanelTicker(opts: {
   }, 450)
 
   return {
-    dispose: () => clearInterval(timer)
+    dispose: () => { clearInterval(timer); }
   }
 }
 

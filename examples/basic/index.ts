@@ -33,5 +33,4 @@ const server = Bun.serve({
   }
 })
 
-// eslint-disable-next-line no-console
-console.log(`listening on http://${server.hostname}:${server.port}`)
+console.log(`listening on http://${server.hostname ?? "0.0.0.0"}:${server.port ?? 3000}`)

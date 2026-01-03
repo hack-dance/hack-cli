@@ -167,7 +167,7 @@ async function handleSetupCursor({
   readonly args: SetupCursorArgs
 }): Promise<number> {
   const action = resolveAction(args.options)
-  const scope = resolveScope({ global: args.options.global === true })
+  const scope = resolveScope({ global: args.options.global })
   const projectRoot = scope === "project" ? await resolveSetupRoot({ ctx, pathOpt: args.options.path }) : undefined
 
   const result =
@@ -192,7 +192,7 @@ async function handleSetupClaude({
   readonly args: SetupClaudeArgs
 }): Promise<number> {
   const action = resolveAction(args.options)
-  const scope = resolveScope({ global: args.options.global === true })
+  const scope = resolveScope({ global: args.options.global })
   const projectRoot = scope === "project" ? await resolveSetupRoot({ ctx, pathOpt: args.options.path }) : undefined
 
   const result =
@@ -217,7 +217,7 @@ async function handleSetupCodex({
   readonly args: SetupCodexArgs
 }): Promise<number> {
   const action = resolveAction(args.options)
-  const scope = resolveScope({ global: args.options.global === true })
+  const scope = resolveScope({ global: args.options.global })
   const projectRoot = scope === "project" ? await resolveSetupRoot({ ctx, pathOpt: args.options.path }) : undefined
 
   const result =
@@ -244,9 +244,9 @@ async function handleSetupAgents({
   const action = resolveAction(args.options)
   const projectRoot = await resolveSetupRoot({ ctx, pathOpt: args.options.path })
   const targets = resolveDocTargets({
-    all: args.options.all === true,
-    agentsMd: args.options.agentsMd === true,
-    claudeMd: args.options.claudeMd === true
+    all: args.options.all,
+    agentsMd: args.options.agentsMd,
+    claudeMd: args.options.claudeMd
   })
 
   const resolvedTargets = targets.length > 0 ? targets : (["agents", "claude"] as const)
@@ -294,13 +294,13 @@ async function handleSetupMcp({
   readonly args: SetupMcpArgs
 }): Promise<number> {
   const action = resolveAction(args.options)
-  const scope = resolveMcpScope({ global: args.options.global === true })
+  const scope = resolveMcpScope({ global: args.options.global })
   const projectRoot = scope === "project" ? await resolveSetupRoot({ ctx, pathOpt: args.options.path }) : undefined
   const targets = resolveMcpTargets({
-    all: args.options.all === true,
-    cursor: args.options.cursor === true,
-    claude: args.options.claude === true,
-    codex: args.options.codex === true
+    all: args.options.all,
+    cursor: args.options.cursor,
+    claude: args.options.claude,
+    codex: args.options.codex
   })
 
   if (action === "check") {

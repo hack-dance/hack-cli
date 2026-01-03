@@ -201,8 +201,8 @@ export function parseCliArgv(cli: CliSpec, argv: readonly string[]): ParsedCliIn
     throw new CliUsageError(message)
   }
 
-  const valuesUnknown: unknown = (parsed as unknown as { values: unknown }).values
-  const posUnknown: unknown = (parsed as unknown as { positionals: unknown }).positionals
+  const valuesUnknown: unknown = (parsed as { values: unknown }).values
+  const posUnknown: unknown = (parsed as { positionals: unknown }).positionals
 
   if (!isRecord(valuesUnknown)) {
     return { values: {}, positionals: [] }

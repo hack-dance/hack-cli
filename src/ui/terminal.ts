@@ -4,7 +4,7 @@ function isTruthyEnv(value: string | undefined): boolean {
 }
 
 export function isTty(): boolean {
-  return process.stdout.isTTY === true
+  return process.stdout.isTTY
 }
 
 export function isColorEnabled(): boolean {

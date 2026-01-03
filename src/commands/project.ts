@@ -831,7 +831,7 @@ async function handleInit({
 
   const enableOauthHost = await confirm({
     message: `Enable OAuth-safe alias host (https://<project>.${DEFAULT_PROJECT_TLD}.${DEFAULT_OAUTH_ALIAS_TLD})?`,
-    initialValue: args.options.oauth === true || Boolean(args.options.oauthTld)
+    initialValue: args.options.oauth || Boolean(args.options.oauthTld)
   })
   if (isCancel(enableOauthHost)) return 1
   const oauthTld =
@@ -988,7 +988,7 @@ async function handleInitAuto({
     devHostOpt: args.options.devHost
   })
 
-  const oauthEnabled = args.options.oauth === true || Boolean(args.options.oauthTld)
+  const oauthEnabled = args.options.oauth || Boolean(args.options.oauthTld)
   const oauth = resolveInitOauth({
     enabled: oauthEnabled,
     tldOpt: args.options.oauthTld
@@ -1549,7 +1549,7 @@ async function buildDiscoveredCompose(input: ComposeWizardInput): Promise<string
       const host =
         d.subdomain && d.subdomain.length > 0 ?
           `${d.subdomain}.${input.devHost}`
-        : `${input.devHost}`
+        : input.devHost
       labels.set("caddy", buildCaddyHostLabelValue({ primaryHost: host, oauth: input.oauth }))
       labels.set("caddy.reverse_proxy", `{{upstreams ${port}}}`)
       labels.set("caddy.tls", "internal")
@@ -1804,7 +1804,7 @@ async function buildManualCompose(input: ManualComposeWizardInput): Promise<stri
       const host =
         d.subdomain && d.subdomain.length > 0 ?
           `${d.subdomain}.${input.devHost}`
-        : `${input.devHost}`
+        : input.devHost
       labels.set("caddy", buildCaddyHostLabelValue({ primaryHost: host, oauth: input.oauth }))
       labels.set("caddy.reverse_proxy", `{{upstreams ${port}}}`)
       labels.set("caddy.tls", "internal")
@@ -1940,7 +1940,7 @@ function buildServicesFromDrafts(opts: {
       const host =
         d.subdomain && d.subdomain.length > 0 ?
           `${d.subdomain}.${opts.devHost}`
-        : `${opts.devHost}`
+        : opts.devHost
       labels.set("caddy", buildCaddyHostLabelValue({ primaryHost: host, oauth: opts.oauth }))
       labels.set("caddy.reverse_proxy", `{{upstreams ${port}}}`)
       labels.set("caddy.tls", "internal")
@@ -2434,7 +2434,7 @@ async function handlePs({
   })
   const branch = resolveBranchSlug(args.options.branch)
   const profiles = parseCsvList(args.options.profile)
-  const json = args.options.json === true
+  const json = args.options.json
 
   await touchBranchUsageIfNeeded({ project, branch })
   const cfg = await readProjectConfig(project)
@@ -2573,7 +2573,7 @@ async function handleLogs({
   const tail = args.options.tail ?? 200
   const service = args.positionals.service
   const profiles = parseCsvList(args.options.profile)
-  const json = args.options.json === true
+  const json = args.options.json
   const format = json ? "json" : args.options.pretty ? "pretty" : "plain"
   const timeRange = parseLogTimeRange({
     since: args.options.since,
@@ -2618,7 +2618,7 @@ async function handleLogs({
   const snapshotBackend = cfg.logs?.snapshotBackend ?? "loki"
 
   const shouldTryLoki = resolveShouldTryLoki({
-    forceCompose: args.options.compose === true,
+    forceCompose: args.options.compose,
     wantsLokiExplicit,
     follow,
     followBackend,
@@ -2628,7 +2628,7 @@ async function handleLogs({
   const lokiReachable = shouldTryLoki ? await lokiLogBackend.isAvailable({ baseUrl }) : false
 
   const useLoki = resolveUseLoki({
-    forceCompose: args.options.compose === true,
+    forceCompose: args.options.compose,
     wantsLokiExplicit,
     shouldTryLoki,
     lokiReachable
@@ -2789,7 +2789,7 @@ async function handleOpen({
     projectOpt: args.options.project
   })
   const branch = resolveBranchSlug(args.options.branch)
-  const json = args.options.json === true
+  const json = args.options.json
   const derivedHost = `${defaultProjectSlugFromPath(project.projectRoot)}.${DEFAULT_PROJECT_TLD}`
   const devHost = (await readProjectDevHost(project)) ?? derivedHost
   await touchBranchUsageIfNeeded({ project, branch })

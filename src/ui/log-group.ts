@@ -33,7 +33,7 @@ export function createStructuredLogGrouper(opts: {
   }
 
   const handleLine = (line: string) => {
-    let current: string | null = line
+    const current: string | null = line
     while (current) {
       const parsed = splitComposeLine(current)
       if (!parsed) {

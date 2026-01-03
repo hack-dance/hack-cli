@@ -99,17 +99,17 @@ function logWithGum(level: LogLevel, { message, fields }: LogInput): void {
 export const logger: Logger = (() => {
   const emit = (level: LogLevel, input: LogInput) => {
     const backend = resolveBackend()
-    if (backend === "gum") return logWithGum(level, input)
-    if (backend === "console") return logWithConsole(level, input)
-    return logWithClack(level, input)
+    if (backend === "gum") { logWithGum(level, input); return; }
+    if (backend === "console") { logWithConsole(level, input); return; }
+    logWithClack(level, input);
   }
 
   return {
-    debug: input => emit("debug", input),
-    info: input => emit("info", input),
-    warn: input => emit("warn", input),
-    error: input => emit("error", input),
-    success: input => emit("success", input),
-    step: input => emit("step", input)
+    debug: input => { emit("debug", input); },
+    info: input => { emit("info", input); },
+    warn: input => { emit("warn", input); },
+    error: input => { emit("error", input); },
+    success: input => { emit("success", input); },
+    step: input => { emit("step", input); }
   } satisfies Logger
 })()

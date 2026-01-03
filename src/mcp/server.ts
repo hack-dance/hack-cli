@@ -684,7 +684,7 @@ async function runHackCommand(opts: {
   })
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_CMD_TIMEOUT_MS
-  const timer = setTimeout(() => proc.kill(), timeoutMs)
+  const timer = setTimeout(() => { proc.kill(); }, timeoutMs)
 
   const [stdout, stderr] = await Promise.all([
     streamToText(proc.stdout),
@@ -766,7 +766,7 @@ async function runHackLogTail(opts: {
     }
   })()
 
-  const timer = setTimeout(() => stop("timeout"), maxMs)
+  const timer = setTimeout(() => { stop("timeout"); }, maxMs)
   const exitCode = await proc.exited
   clearTimeout(timer)
 

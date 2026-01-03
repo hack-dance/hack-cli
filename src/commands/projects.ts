@@ -87,15 +87,15 @@ const handleProjects: CommandHandlerFor<typeof spec> = async ({ args }): Promise
     typeof args.options.project === "string" ? sanitizeName(args.options.project) : null
   return await runProjects({
     filter,
-    includeGlobal: args.options.includeGlobal === true,
-    includeUnregistered: args.options.all === true,
-    details: args.options.details === true,
-    json: args.options.json === true
+    includeGlobal: args.options.includeGlobal,
+    includeUnregistered: args.options.all,
+    details: args.options.details,
+    json: args.options.json
   })
 }
 
 const handlePrune: CommandHandlerFor<typeof pruneSpec> = async ({ args }): Promise<number> => {
-  const includeGlobal = args.options.includeGlobal === true
+  const includeGlobal = args.options.includeGlobal
   const registry = await readProjectsRegistry()
   const missing = await findMissingRegistryEntries(registry.projects)
   const runtime = await readRuntimeProjects({ includeGlobal })
@@ -179,10 +179,10 @@ const handleStatus: CommandHandlerFor<typeof statusSpec> = async ({ args }): Pro
     typeof args.options.project === "string" ? sanitizeName(args.options.project) : null
   return await runProjects({
     filter,
-    includeGlobal: args.options.includeGlobal === true,
-    includeUnregistered: args.options.all === true,
+    includeGlobal: args.options.includeGlobal,
+    includeUnregistered: args.options.all,
     details: true,
-    json: args.options.json === true
+    json: args.options.json
   })
 }
 

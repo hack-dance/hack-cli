@@ -31,7 +31,7 @@ export async function canReachLoki(opts: { readonly baseUrl: string }): Promise<
   const url = new URL(`${baseUrl}/ready`)
   const ctrl = new AbortController()
   const timeoutMs = parseTimeoutMs(process.env.HACK_LOKI_READY_TIMEOUT_MS, 800)
-  const timeout = setTimeout(() => ctrl.abort(), timeoutMs)
+  const timeout = setTimeout(() => { ctrl.abort(); }, timeoutMs)
   try {
     const res = await fetch(url, { signal: ctrl.signal })
     return res.ok

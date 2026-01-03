@@ -27,8 +27,8 @@ export function createDaemonLogger({
   }
 
   return {
-    info: ({ message }) => writeLine("info", message),
-    warn: ({ message }) => writeLine("warn", message),
-    error: ({ message }) => writeLine("error", message)
+    info: ({ message }) => { writeLine("info", message); },
+    warn: ({ message }) => { writeLine("warn", message); },
+    error: ({ message }) => { writeLine("error", message); }
   }
 }

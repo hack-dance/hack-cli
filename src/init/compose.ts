@@ -72,7 +72,7 @@ function recordFromMap(map: ReadonlyMap<string, string>): Record<string, string>
 function cleanupYaml(yaml: string): string {
   // Bun.YAML.stringify currently emits `key: ` (space before newline) for nested maps.
   // Clean it up to a more conventional `key:` format.
-  let out = yaml.replaceAll(/: \n/g, ":\n")
+  const out = yaml.replaceAll(/: \n/g, ":\n")
 
   return out
 }

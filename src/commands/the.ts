@@ -64,7 +64,7 @@ async function handlePlanet({
     : [getPlanetAnimation({ variant })]
   const ok = await playPlanetAnimation({
     animations,
-    loop: args.options.loop === true
+    loop: args.options.loop
   })
   return ok ? 0 : 1
 }

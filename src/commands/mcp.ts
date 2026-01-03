@@ -156,10 +156,10 @@ async function handleMcpInstall({
     pathOpt: args.options.path
   })
   const targets = await resolveTargets({
-    all: args.options.all === true,
-    cursor: args.options.cursor === true,
-    claude: args.options.claude === true,
-    codex: args.options.codex === true
+    all: args.options.all,
+    cursor: args.options.cursor,
+    claude: args.options.claude,
+    codex: args.options.codex
   })
   if (targets.length === 0) return 1
 
@@ -192,9 +192,9 @@ async function handleMcpInstall({
   }
 
   const docTargets = resolveDocTargets({
-    docs: args.options.docs === true,
-    agentsMd: args.options.agentsMd === true,
-    claudeMd: args.options.claudeMd === true
+    docs: args.options.docs,
+    agentsMd: args.options.agentsMd,
+    claudeMd: args.options.claudeMd
   })
   if (docTargets.length > 0) {
     const docsRoot = resolveDocsRoot({
@@ -241,10 +241,10 @@ async function handleMcpPrint({
     pathOpt: args.options.path
   })
   const targets = await resolveTargets({
-    all: args.options.all === true,
-    cursor: args.options.cursor === true,
-    claude: args.options.claude === true,
-    codex: args.options.codex === true
+    all: args.options.all,
+    cursor: args.options.cursor,
+    claude: args.options.claude,
+    codex: args.options.codex
   })
   if (targets.length === 0) return 1
 
