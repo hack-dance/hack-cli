@@ -234,7 +234,7 @@ export function renderMcpConfigSnippet(opts: {
     scope: opts.scope,
     path: resolved.path,
     format: "json",
-    content: `${JSON.stringify({ mcpServers: { [SERVER_NAME]: entry } }, null, 2)}`
+    content: JSON.stringify({ mcpServers: { [SERVER_NAME]: entry } }, null, 2)
   }
 }
 

@@ -77,7 +77,7 @@ async function requestDaemonRaw(opts: {
   const url = new URL(pathWithQuery, "http://localhost")
 
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs)
+  const timeout = setTimeout(() => { controller.abort(); }, opts.timeoutMs)
 
   try {
     const res = await fetch(url, {

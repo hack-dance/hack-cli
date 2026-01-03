@@ -260,7 +260,7 @@ async function readComposeServices(opts: { readonly absolutePath: string }): Pro
 
   let parsed: unknown
   try {
-    parsed = YAML.parse(text) as unknown
+    parsed = YAML.parse(text)
   } catch {
     return []
   }

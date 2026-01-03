@@ -543,7 +543,7 @@ async function queryDnsARecord(opts: {
       resolve(value)
     }
 
-    const timeout = setTimeout(() => finish(null), opts.timeoutMs)
+    const timeout = setTimeout(() => { finish(null); }, opts.timeoutMs)
 
     socket.on("message", (msg: Buffer) => {
       clearTimeout(timeout)
@@ -666,7 +666,7 @@ async function checkGrafanaReachable(): Promise<CheckResult> {
   // Best-effort; TLS may fail if CA isn't trusted. Don't error on this.
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 2000)
+    const timeout = setTimeout(() => { controller.abort(); }, 2000)
     const res = await fetch(`http://${DEFAULT_GRAFANA_HOST}`, {
       signal: controller.signal,
       redirect: "manual"
@@ -1108,7 +1108,7 @@ async function runCheck(
         await Promise.race([
           fn(),
           new Promise<CheckResult>(resolve =>
-            setTimeout(() => resolve({ name, status: "warn", message: "Timed out" }), opts.timeoutMs)
+            setTimeout(() => { resolve({ name, status: "warn", message: "Timed out" }); }, opts.timeoutMs)
           )
         ])
       : await fn()

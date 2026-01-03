@@ -5,12 +5,12 @@ import "./globals.css";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
-});
+}) as unknown;
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
-});
+}) as unknown;
 
 export const metadata: Metadata = {
   title: "Create Next App",

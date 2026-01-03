@@ -76,8 +76,8 @@ export async function runDaemon({
       metrics.lastEventAtMs = Date.now()
       scheduleRefresh({ reason: "event" })
     },
-    onError: message => logger.warn({ message: `docker events: ${message}` }),
-    onExit: exitCode => logger.warn({ message: `docker events exited (${exitCode})` })
+    onError: message => { logger.warn({ message: `docker events: ${message}` }); },
+    onExit: exitCode => { logger.warn({ message: `docker events exited (${exitCode})` }); }
   })
 
   const server = Bun.serve({
