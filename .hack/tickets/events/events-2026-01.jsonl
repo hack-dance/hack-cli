@@ -1,0 +1,1 @@
+{"actor":"hack@Mac","eventId":"4447c640-1750-45c8-83df-13c812173f6e","payload":{"body":"This is a long-ish body\\nwith multiple lines.\\n\\nWe should support statuses.","status":"open","title":"Dogfood: tickets status/body"},"projectId":"4132b9154775","projectName":"hack-cli","ticketId":"T-00001","ts":1767819842,"tsIso":"2026-01-07T21:04:02.000Z","type":"ticket.created"}
