@@ -1,0 +1,58 @@
+{
+  "name": "hack-cli",
+  "version": "1.1.0",
+  "module": "index.ts",
+  "type": "module",
+  "bin": {
+    "hack": "dist/hack"
+  },
+  "scripts": {
+    "dev": "bun run index.ts",
+    "build": "bun build index.ts --compile --outfile dist/hack",
+    "build:release": "bun run scripts/build-release.ts",
+    "commit": "cz",
+    "install:dev": "bun run scripts/install-cli.ts --mode=dev --force",
+    "install:bin": "bun run build && bun run scripts/install-cli.ts --mode=bin --force",
+    "install:status": "bun run scripts/install-status.ts",
+    "lint": "bun run scripts/lint.ts",
+    "prepare": "husky",
+    "release:prepare": "bunx semantic-release --no-ci",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "uninstall:local": "bun run scripts/uninstall-cli.ts",
+    "test": "bun test",
+    "test:e2e:gateway": "bun run scripts/gateway-e2e.ts"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "19.8.1",
+    "@commitlint/config-conventional": "19.8.1",
+    "@semantic-release/changelog": "6.0.3",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "10.0.1",
+    "@semantic-release/release-notes-generator": "14.1.0",
+    "@types/bun": "latest",
+    "@types/qrcode": "^1.5.6",
+    "commitizen": "4.3.1",
+    "cz-conventional-changelog": "3.3.0",
+    "husky": "9.1.7",
+    "prettier": "3.7.4",
+    "prettier-plugin-sort-imports": "^1.8.9",
+    "semantic-release": "25.0.2"
+  },
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@charmland/lipgloss": "2.0.0-beta.3-0e280f3",
+    "@clack/prompts": "1.0.0-alpha.9",
+    "@modelcontextprotocol/sdk": "1.25.1",
+    "@opentui/core": "^0.1.68",
+    "qrcode": "^1.5.4",
+    "zod": "4.3.4"
+  }
+}
