@@ -35,8 +35,9 @@ export async function createGitTicketsChannel(opts: {
   const bareDir = resolve(gitDir, "bare.git")
   const worktreeDir = resolve(gitDir, "worktree")
 
+  const gitEnabled = opts.config.enabled
   const branch = opts.config.branch
-  const remoteName = (opts.config.remote ?? "origin").trim()
+  const remoteName = gitEnabled ? (opts.config.remote ?? "origin").trim() : ""
 
   const runGitDir = async (input: {
     readonly args: readonly string[]
@@ -48,7 +49,7 @@ export async function createGitTicketsChannel(opts: {
   }
 
   const resolveRemoteUrl = async (): Promise<string | null> => {
-    if (!remoteName) return null
+    if (!gitEnabled || !remoteName) return null
     const result = await runGit({
       cwd: opts.projectRoot,
       args: ["remote", "get-url", remoteName]
@@ -94,6 +95,10 @@ export async function createGitTicketsChannel(opts: {
   }
 
   const ensureRemote = async (): Promise<{ readonly remoteUrl: string | null }> => {
+    if (!gitEnabled || !remoteName) {
+      return { remoteUrl: null }
+    }
+
     const remoteUrl = await resolveRemoteUrl()
     if (!remoteUrl) {
       await runGitDir({ args: ["remote", "remove", "origin"] }).catch(() => {})
@@ -116,10 +121,18 @@ export async function createGitTicketsChannel(opts: {
 
     if (input.remoteUrl) {
       const fetched = await runGitDir({
-        args: ["fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*"]
+        args: [
+          "fetch",
+          "--prune",
+          "origin",
+          `+refs/heads/${branch}:refs/remotes/origin/${branch}`
+        ]
       })
       if (!fetched.ok) {
-        return { ok: false, error: `git fetch failed: ${fetched.stderr.trim()}` }
+        const message = `${fetched.stderr}\n${fetched.stdout}`.trim()
+        if (!isMissingRemoteRef(message)) {
+          return { ok: false, error: `git fetch failed: ${message}` }
+        }
       }
 
       const rev = await runGitDir({ args: ["rev-parse", "--verify", `origin/${branch}`] })
@@ -419,4 +432,13 @@ function safeJsonParse(text: string): unknown {
   } catch {
     return null
   }
+}
+
+function isMissingRemoteRef(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes("couldn't find remote ref") ||
+    (normalized.includes("remote ref") && normalized.includes("not found")) ||
+    (normalized.includes("remote branch") && normalized.includes("not found"))
+  )
 }

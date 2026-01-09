@@ -1,10 +1,21 @@
 import { display } from "../../../ui/display.ts"
+import { gumConfirm, isGumAvailable } from "../../../ui/gum.ts"
+import { isTty } from "../../../ui/terminal.ts"
 
 import { createTicketsStore } from "./store.ts"
 import { checkTicketsAgentDocs, removeTicketsAgentDocs, upsertTicketsAgentDocs } from "./agent-docs.ts"
+import {
+  checkTicketsRepoState,
+  ensureTicketsGitignore,
+  untrackTicketsRepo,
+  type TicketsRepoGitignoreFixStatus,
+  type TicketsRepoGitignoreStatus,
+  type TicketsRepoTrackedStatus,
+  type TicketsRepoUntrackStatus
+} from "./repo-state.ts"
 import { checkTicketsSkill, installTicketsSkill, removeTicketsSkill } from "./tickets-skill.ts"
 
-import type { ExtensionCommand } from "../types.ts"
+import type { ExtensionCommand, ExtensionCommandContext } from "../types.ts"
 
 export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
   {
@@ -41,6 +52,52 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
       const projectRoot = ctx.project.projectRoot
 
       const action = parsed.value.remove ? "remove" : parsed.value.check ? "check" : "install"
+      const repoState = await checkTicketsRepoState({ projectRoot })
+
+      let repoGitignore: {
+        status: TicketsRepoGitignoreStatus | TicketsRepoGitignoreFixStatus
+        path: string
+        message?: string
+      } = {
+        status: repoState.gitignore.status,
+        path: repoState.gitignore.path,
+        message: repoState.gitignore.message
+      }
+      let repoTracking: {
+        status: TicketsRepoTrackedStatus | TicketsRepoUntrackStatus
+        message?: string
+      } = {
+        status: repoState.tracked.status,
+        message: repoState.tracked.message
+      }
+
+      if (action === "install") {
+        if (repoState.gitignore.status === "missing") {
+          repoGitignore = await ensureTicketsGitignore({ projectRoot })
+        } else if (repoState.gitignore.status === "present") {
+          repoGitignore = { status: "noop", path: repoState.gitignore.path }
+        }
+
+        if (repoState.tracked.status === "tracked") {
+          const canPrompt = isTty() && isGumAvailable() && !parsed.value.json
+          if (canPrompt) {
+            const confirmed = await gumConfirm({
+              prompt: "Untrack .hack/tickets from the main branch? (keeps files on disk)",
+              default: true
+            })
+            if (confirmed.ok && confirmed.value) {
+              repoTracking = await untrackTicketsRepo({ projectRoot })
+            } else {
+              repoTracking = { status: "skipped", message: "Skipped untracking .hack/tickets." }
+            }
+          } else {
+            repoTracking = {
+              status: "skipped",
+              message: "Run: git rm -r --cached .hack/tickets"
+            }
+          }
+        }
+      }
 
       const skill =
         action === "check" ?
@@ -57,7 +114,9 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         : await upsertTicketsAgentDocs({ projectRoot, targets: resolvedTargets })
 
       if (parsed.value.json) {
-        process.stdout.write(`${JSON.stringify({ skill, docs }, null, 2)}\n`)
+        process.stdout.write(
+          `${JSON.stringify({ skill, docs, repo: { gitignore: repoGitignore, tracking: repoTracking } }, null, 2)}\n`
+        )
         return 0
       }
 
@@ -66,7 +125,11 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         tone: "success",
         lines: [
           `skill: ${skill.status} (${skill.path})`,
-          ...docs.map(r => `${r.target}: ${r.status} (${r.path})`)
+          ...docs.map(r => `${r.target}: ${r.status} (${r.path})`),
+          `repo.gitignore: ${repoGitignore.status} (${repoGitignore.path})`,
+          `repo.tracking: ${repoTracking.status}${
+            repoTracking.message ? ` (${repoTracking.message})` : ""
+          }`
         ]
       })
 
@@ -94,6 +157,8 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         ctx.logger.error({ message: "Usage: hack x tickets create --title \"...\"" })
         return 1
       }
+
+      await maybeEnsureTicketsSetup({ ctx, json: parsed.value.json })
 
       const store = await createTicketsStore({
         projectRoot: ctx.project.projectRoot,
@@ -154,6 +219,8 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         return 1
       }
 
+      await maybeEnsureTicketsSetup({ ctx, json: parsed.value.json })
+
       const store = await createTicketsStore({
         projectRoot: ctx.project.projectRoot,
         projectId: ctx.projectId,
@@ -206,6 +273,8 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         ctx.logger.error({ message: "Usage: hack x tickets show <ticket-id>" })
         return 1
       }
+
+      await maybeEnsureTicketsSetup({ ctx, json: parsed.value.json })
 
       const store = await createTicketsStore({
         projectRoot: ctx.project.projectRoot,
@@ -283,6 +352,8 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         return 1
       }
 
+      await maybeEnsureTicketsSetup({ ctx, json: parsed.value.json })
+
       const store = await createTicketsStore({
         projectRoot: ctx.project.projectRoot,
         projectId: ctx.projectId,
@@ -331,6 +402,8 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         ctx.logger.error({ message: parsed.error })
         return 1
       }
+
+      await maybeEnsureTicketsSetup({ ctx, json: parsed.value.json })
 
       const store = await createTicketsStore({
         projectRoot: ctx.project.projectRoot,
@@ -521,6 +594,86 @@ async function resolveTicketBody(opts: {
   return body.length > 0 ? body : undefined
 }
 
+async function maybeEnsureTicketsSetup(opts: {
+  readonly ctx: ExtensionCommandContext
+  readonly json: boolean
+}): Promise<void> {
+  if (!opts.ctx.project) return
+  if (opts.json) return
+
+  const projectRoot = opts.ctx.project.projectRoot
+  const repoState = await checkTicketsRepoState({ projectRoot })
+
+  const skill = await checkTicketsSkill({ scope: "project", projectRoot })
+  const docs = await checkTicketsAgentDocs({
+    projectRoot,
+    targets: ["agents", "claude"]
+  })
+
+  const needsGitignore = repoState.gitignore.status === "missing"
+  const needsUntrack = repoState.tracked.status === "tracked"
+  const needsSkill = skill.status === "missing" || skill.status === "error"
+  const needsDocs = docs.some(doc => doc.status === "missing" || doc.status === "error")
+
+  if (!(needsGitignore || needsUntrack || needsSkill || needsDocs)) return
+
+  if (!isTty() || !isGumAvailable()) {
+    const notices: string[] = []
+    if (needsGitignore) {
+      notices.push("add .hack/tickets/ to .gitignore")
+    }
+    if (needsUntrack) {
+      notices.push("untrack .hack/tickets from main branch")
+    }
+    if (needsSkill || needsDocs) {
+      notices.push("run tickets setup")
+    }
+    if (notices.length > 0) {
+      opts.ctx.logger.warn({ message: `Tickets setup incomplete: ${notices.join("; ")}.` })
+    }
+    return
+  }
+
+  const confirmed = await gumConfirm({
+    prompt: "Tickets setup is incomplete. Fix now?",
+    default: true
+  })
+  if (!confirmed.ok || !confirmed.value) return
+
+  const lines: string[] = []
+
+  if (needsGitignore) {
+    const gitignore = await ensureTicketsGitignore({ projectRoot })
+    lines.push(`repo.gitignore: ${gitignore.status} (${gitignore.path})`)
+  }
+
+  if (needsUntrack) {
+    const untrack = await untrackTicketsRepo({ projectRoot })
+    lines.push(`repo.tracking: ${untrack.status}${untrack.message ? ` (${untrack.message})` : ""}`)
+  }
+
+  if (needsSkill) {
+    const installed = await installTicketsSkill({ scope: "project", projectRoot })
+    lines.push(`skill: ${installed.status} (${installed.path})`)
+  }
+
+  if (needsDocs) {
+    const updatedDocs = await upsertTicketsAgentDocs({
+      projectRoot,
+      targets: ["agents", "claude"]
+    })
+    lines.push(...updatedDocs.map(doc => `${doc.target}: ${doc.status} (${doc.path})`))
+  }
+
+  if (lines.length > 0) {
+    await display.panel({
+      title: "Tickets setup",
+      tone: "success",
+      lines
+    })
+  }
+}
+
 function parseTicketsSetupArgs(opts: { readonly args: readonly string[] }): TicketsSetupParseResult {
   let agents = false
   let claude = false
@@ -583,4 +736,3 @@ function parseTicketsSetupArgs(opts: { readonly args: readonly string[] }): Tick
 
   return { ok: true, value: { agents, claude, all, global, check, remove, json } }
 }
-

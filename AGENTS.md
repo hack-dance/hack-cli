@@ -43,8 +43,6 @@ TypeScript (strict). Runtimes: Bun 1.3+, Node 23. Prettier: 2 spaces, no semicol
 Always default to useing named paramaters in functions eg myFunction({ ctx, other }) vs myFunction(ctx, other)
 Never use any types and always default to leveraging generics and smart types to sensure the best possible tpye inference across the project.
 
-
-
 <!-- hack:tickets:start -->
 ## Tickets (git-backed)
 
@@ -57,7 +55,7 @@ Common commands:
 - Status: `hack x tickets status T-00001 in_progress`
 - Sync: `hack x tickets sync`
 
-Data lives in `.hack/tickets/` and syncs to branch `hack/tickets` by default.
+Data lives in `.hack/tickets/` (gitignored on the main branch) and syncs to branch `hack/tickets` by default.
 <!-- hack:tickets:end -->
 
 ## Landing the Plane (Session Completion)

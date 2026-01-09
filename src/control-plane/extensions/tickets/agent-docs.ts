@@ -129,7 +129,7 @@ export function renderTicketsAgentDocsSnippet(): string {
     "- Status: `hack x tickets status T-00001 in_progress`",
     "- Sync: `hack x tickets sync`",
     "",
-    "Data lives in `.hack/tickets/` and syncs to branch `hack/tickets` by default.",
+    "Data lives in `.hack/tickets/` (gitignored on the main branch) and syncs to branch `hack/tickets` by default.",
     DOC_MARKER_END,
     ""
   ]

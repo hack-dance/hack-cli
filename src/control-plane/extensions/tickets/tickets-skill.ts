@@ -134,7 +134,7 @@ export function renderTicketsSkill(): string {
     "## Data model",
     "",
     "- Tickets are derived from an append-only event log (JSONL).",
-    "- Local state lives in `.hack/tickets/`.",
+    "- Local state lives in `.hack/tickets/` (gitignored on the main branch).",
     "- Sync writes commits to a dedicated branch (`hack/tickets` by default) and pushes to your remote.",
     "",
     "## Tips",
