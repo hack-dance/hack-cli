@@ -159,7 +159,10 @@ Options:
 | --- | --- | --- | --- |
 | `--project <name>` | string | - | Filter to a registered project name |
 | `--include-global` | boolean | false | Include global infra projects under `~/.hack` |
-| `--json` | boolean | false | Output JSON (machine-readable) |
+| `--watch` | boolean | false | Refresh usage continuously |
+| `--interval <ms>` | number | - | Refresh interval (ms) for `--watch` |
+| `--no-host` | boolean | false | Skip host process metrics |
+| `--json` | boolean | false | Output JSON (machine-readable); not supported with `--watch` |
 
 ## Project commands
 

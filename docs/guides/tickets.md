@@ -44,6 +44,11 @@ Options:
 - `--agents` / `--claude` / `--all` control which agent-doc files get a tickets snippet.
 - `--check` and `--remove` work as expected.
 
+Notes:
+- Most tickets commands prompt to run setup if `.hack/tickets/` is tracked, missing from `.gitignore`,
+  or if agent docs/skills are missing (TTY + gum only).
+- In non-interactive or `--json` modes, the CLI prints a warning instead of prompting.
+
 ## Basic usage
 
 Create a ticket:
@@ -62,6 +67,12 @@ hack x tickets create --title "Deep dive" --body-file ./notes.md
 echo "long body..." | hack x tickets create --title "Deep dive" --body-stdin
 ```
 
+Open the TUI:
+
+```bash
+hack x tickets tui
+```
+
 List tickets:
 
 ```bash
@@ -74,23 +85,49 @@ Show a ticket:
 hack x tickets show T-00001
 ```
 
+Update a ticket:
+
+```bash
+hack x tickets update T-00001 --title "Investigate flaky test in CI" --body-file ./notes.md
+```
+
 Change status:
 
 ```bash
 hack x tickets status T-00001 in_progress
 ```
 
-Sync to git remote (pushes the tickets branch when a remote exists):
+Dependencies:
+
+```bash
+hack x tickets create --title "Ship API" --depends-on T-00001 --blocks T-00002
+hack x tickets update T-00001 --depends-on T-00002 --blocks T-00003
+hack x tickets update T-00001 --clear-depends-on --clear-blocks
+```
+
+Sync to git remote (normalizes logs and pushes the tickets branch when a remote exists):
 
 ```bash
 hack x tickets sync
 ```
 
+Recommended body template (Markdown):
+
+```md
+## Context
+## Goals
+## Notes
+## Links
+```
+
+Tip: use `--body-stdin` for multi-line markdown.
+
 ## How it works
 
 - Ticket history is an append-only event log (`ticket.created`, etc.) stored as monthly JSONL files.
 - The extension reads events, materializes tickets in-memory, and renders `list/show` outputs.
-- `sync` commits and pushes the tickets branch.
+- Ticket writes automatically commit and push to the tickets branch when git sync is enabled and a remote exists.
+- `sync` normalizes the event logs, commits, and pushes the tickets branch.
 
 ### Storage layout
 
@@ -108,6 +145,7 @@ Defaults:
 - `enabled: true`
 - `branch: "hack/tickets"`
 - `remote: "origin"`
+- `forceBareClone: false`
 
 Example override:
 

@@ -21,6 +21,7 @@ Quick diagnostics:
 - Remote setup (one command): `hack remote setup`
 - [Initialize a project](guides/init-project.md)
 - [Global settings](guides/global-settings.md)
+- [Tickets (git-backed)](guides/tickets.md)
 - [Expose the gateway over SSH](guides/remote-ssh.md)
 - [Expose the gateway with Cloudflare](guides/remote-cloudflare.md)
 - [Expose the gateway with Tailscale](guides/remote-tailscale.md)

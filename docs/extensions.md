@@ -102,7 +102,7 @@ Use `hack x <namespace> help` to list commands.
 - Supervisor: `hack x supervisor job-create|job-list|job-show|job-tail|job-attach|job-cancel|shell`
 - Cloudflare: `hack x cloudflare tunnel-print|tunnel-setup|tunnel-start|tunnel-stop|access-setup`
 - Tailscale: `hack x tailscale setup|status|ip`
-- Tickets: `hack x tickets setup|create|list|show|status|sync` (see `docs/guides/tickets.md`)
+- Tickets: `hack x tickets setup|create|update|list|show|status|sync|tui` (see `docs/guides/tickets.md`)
 
 Gateway tokens default to `read` scope. Use `--scope write` to permit non-GET requests (also
 requires global `controlPlane.gateway.allowWrites = true`).
@@ -357,11 +357,19 @@ Usage: `hack x tickets setup [--global] [--agents|--claude|--all] [--check|--rem
 
 #### create
 
-Usage: `hack x tickets create --title "..." [--body "..."] [--body-file <path>] [--body-stdin] [--actor "..."] [--json]`
+Usage: `hack x tickets create --title "..." [--body "..."] [--body-file <path>] [--body-stdin] [--depends-on "T-00001"] [--blocks "T-00002"] [--actor "..."] [--json]`
+
+#### update
+
+Usage: `hack x tickets update <ticket-id> [--title "..."] [--body "..."] [--body-file <path>] [--body-stdin] [--depends-on "T-00001"] [--blocks "T-00002"] [--clear-depends-on] [--clear-blocks] [--actor "..."] [--json]`
 
 #### list
 
 Usage: `hack x tickets list [--json]`
+
+#### tui
+
+Usage: `hack x tickets tui`
 
 #### show
 

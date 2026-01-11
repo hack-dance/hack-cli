@@ -49,11 +49,23 @@ Never use any types and always default to leveraging generics and smart types to
 This project uses `hack` tickets (extension: `dance.hack.tickets`).
 
 Common commands:
-- Create: `hack x tickets create --title "..." --body-stdin` (pipe long context)
+- Create: `hack x tickets create --title "..." --body-stdin [--depends-on "T-00001"] [--blocks "T-00002"]`
 - List: `hack x tickets list`
+- Tui: `hack x tickets tui`
 - Show: `hack x tickets show T-00001`
+- Update: `hack x tickets update T-00001 [--title "..."] [--body "..."] [--depends-on "..."] [--blocks "..."]`
 - Status: `hack x tickets status T-00001 in_progress`
 - Sync: `hack x tickets sync`
+
+Recommended body template (Markdown):
+```md
+## Context
+## Goals
+## Notes
+## Links
+```
+
+Tip: use `--body-stdin` for multi-line markdown.
 
 Data lives in `.hack/tickets/` (gitignored on the main branch) and syncs to branch `hack/tickets` by default.
 <!-- hack:tickets:end -->

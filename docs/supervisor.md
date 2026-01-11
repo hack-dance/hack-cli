@@ -7,7 +7,8 @@ and remotely through the gateway API.
 ## Local usage
 
 ```bash
-hack x supervisor job-create --project <projectId> -- command args
+hack x supervisor job-create --project <project> -- command args
+hack x supervisor job-create --path <repo-path> -- command args
 hack x supervisor job-list
 hack x supervisor job-tail <jobId>
 hack x supervisor job-cancel <jobId>
@@ -18,6 +19,7 @@ hack x supervisor shell --token <write-token>
 Notes:
 - Shells and job creation require a **write** gateway token + `allowWrites` when using the gateway.
 - Local `hack x supervisor` commands can run without the gateway.
+- `--project` expects a registered project name (slug); use `--project-id` when targeting the gateway directly.
 
 ## Remote usage (gateway)
 
