@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto"
 import { isRecord } from "../../../lib/guards.ts"
 
 import { createGitTicketsChannel } from "./tickets-git-channel.ts"
-import { formatTicketId, parseTicketNumber, unixSeconds } from "./util.ts"
+import { formatTicketId, normalizeTicketRefs, parseTicketNumber, unixSeconds } from "./util.ts"
 
 import type { ControlPlaneConfig } from "../../sdk/config.ts"
 
@@ -19,6 +19,8 @@ export type TicketSummary = {
   readonly status: TicketStatus
   readonly createdAt: string
   readonly updatedAt: string
+  readonly dependsOn: readonly string[]
+  readonly blocks: readonly string[]
   readonly projectId?: string
   readonly projectName?: string
 }
@@ -59,11 +61,25 @@ export async function createTicketsStore(opts: {
   readonly createTicket: (input: {
     readonly title: string
     readonly body?: string
+    readonly dependsOn?: readonly string[]
+    readonly blocks?: readonly string[]
     readonly actor?: string
   }) => Promise<CreateTicketResult>
+  readonly updateTicket: (input: {
+    readonly ticketId: string
+    readonly title?: string
+    readonly body?: string
+    readonly dependsOn?: readonly string[]
+    readonly blocks?: readonly string[]
+    readonly actor?: string
+  }) => Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }>
   readonly listTickets: () => Promise<readonly TicketSummary[]>
   readonly getTicket: (input: { readonly ticketId: string }) => Promise<TicketSummary | null>
   readonly listEvents: (input: { readonly ticketId: string }) => Promise<readonly TicketEvent[]>
+  readonly readSnapshot: () => Promise<{
+    readonly tickets: readonly TicketSummary[]
+    readonly eventsByTicket: ReadonlyMap<string, readonly TicketEvent[]>
+  }>
   readonly setStatus: (input: {
     readonly ticketId: string
     readonly status: TicketStatus
@@ -137,12 +153,20 @@ export async function createTicketsStore(opts: {
 
   const materializeTickets = async (): Promise<Map<string, TicketSummary>> => {
     const events = await readAllEvents()
+    return materializeTicketsFromEvents({ events })
+  }
+
+  const materializeTicketsFromEvents = (opts: {
+    readonly events: readonly TicketEvent[]
+  }): Map<string, TicketSummary> => {
     const tickets = new Map<string, TicketSummary>()
 
-    for (const event of events) {
+    for (const event of opts.events) {
       if (event.type === "ticket.created") {
         const title = typeof event.payload["title"] === "string" ? event.payload["title"] : ""
         const body = typeof event.payload["body"] === "string" ? event.payload["body"] : undefined
+        const dependsOn = parseDependencyList({ value: event.payload["dependsOn"] })
+        const blocks = parseDependencyList({ value: event.payload["blocks"] })
 
         tickets.set(event.ticketId, {
           ticketId: event.ticketId,
@@ -151,6 +175,8 @@ export async function createTicketsStore(opts: {
           status: "open",
           createdAt: event.tsIso,
           updatedAt: event.tsIso,
+          dependsOn,
+          blocks,
           ...(event.projectId ? { projectId: event.projectId } : {}),
           ...(event.projectName ? { projectName: event.projectName } : {})
         })
@@ -178,21 +204,44 @@ export async function createTicketsStore(opts: {
 
         const title = typeof event.payload["title"] === "string" ? event.payload["title"] : undefined
         const body = typeof event.payload["body"] === "string" ? event.payload["body"] : undefined
+        const dependsOn = readDependencyUpdate({ payload: event.payload, key: "dependsOn" })
+        const blocks = readDependencyUpdate({ payload: event.payload, key: "blocks" })
 
         tickets.set(event.ticketId, {
           ...current,
           ...(title ? { title } : {}),
           ...(body !== undefined ? { body } : {}),
+          ...(dependsOn !== null ? { dependsOn } : {}),
+          ...(blocks !== null ? { blocks } : {}),
           updatedAt: event.tsIso
         })
       }
     }
 
-    return tickets
+    return applyDerivedBlocks(tickets)
+  }
+
+  const groupEventsByTicket = (opts: {
+    readonly events: readonly TicketEvent[]
+  }): Map<string, TicketEvent[]> => {
+    const grouped = new Map<string, TicketEvent[]>()
+    for (const event of opts.events) {
+      const list = grouped.get(event.ticketId) ?? []
+      list.push(event)
+      grouped.set(event.ticketId, list)
+    }
+    return grouped
+  }
+
+  const sortTickets = (opts: { readonly tickets: Iterable<TicketSummary> }): TicketSummary[] => {
+    const out = [...opts.tickets]
+    out.sort((a, b) => (parseTicketNumber(a.ticketId) ?? 0) - (parseTicketNumber(b.ticketId) ?? 0))
+    return out
   }
 
   const computeNextTicketId = async (): Promise<string> => {
-    const tickets = await materializeTickets()
+    const events = await readAllEvents()
+    const tickets = materializeTicketsFromEvents({ events })
     let max = 0
     for (const ticketId of tickets.keys()) {
       const n = parseTicketNumber(ticketId)
@@ -223,12 +272,16 @@ export async function createTicketsStore(opts: {
   return {
     createTicket: async input => {
       const ticketId = await computeNextTicketId()
+      const dependsOn = normalizeTicketRefs(input.dependsOn ?? [])
+      const blocks = normalizeTicketRefs(input.blocks ?? [])
       const event = buildEvent({
         ticketId,
         type: "ticket.created",
         payload: {
           title: input.title,
           ...(input.body ? { body: input.body } : {}),
+          ...(dependsOn.length > 0 ? { dependsOn } : {}),
+          ...(blocks.length > 0 ? { blocks } : {}),
           status: "open"
         },
         actor: input.actor
@@ -246,21 +299,58 @@ export async function createTicketsStore(opts: {
           status: "open",
           createdAt: event.tsIso,
           updatedAt: event.tsIso,
+          dependsOn,
+          blocks,
           ...(opts.projectId ? { projectId: opts.projectId } : {}),
           ...(opts.projectName ? { projectName: opts.projectName } : {})
         }
       }
     },
 
-    listTickets: async () => {
+    updateTicket: async input => {
       const tickets = await materializeTickets()
-      const out = [...tickets.values()]
-      out.sort((a, b) => (parseTicketNumber(a.ticketId) ?? 0) - (parseTicketNumber(b.ticketId) ?? 0))
-      return out
+      const current = tickets.get(input.ticketId)
+      if (!current) return { ok: false, error: `Ticket not found: ${input.ticketId}` }
+
+      const payload: Record<string, unknown> = {}
+      if (input.title !== undefined) {
+        const title = input.title.trim()
+        if (!title) return { ok: false, error: "Title cannot be empty." }
+        payload["title"] = title
+      }
+      if (input.body !== undefined) {
+        payload["body"] = input.body
+      }
+      if (input.dependsOn !== undefined) {
+        payload["dependsOn"] = normalizeTicketRefs(input.dependsOn)
+      }
+      if (input.blocks !== undefined) {
+        payload["blocks"] = normalizeTicketRefs(input.blocks)
+      }
+
+      if (Object.keys(payload).length === 0) {
+        return { ok: false, error: "No updates provided." }
+      }
+
+      const event = buildEvent({
+        ticketId: input.ticketId,
+        type: "ticket.updated",
+        payload,
+        actor: input.actor
+      })
+
+      return await git.appendEvents({ events: [event] })
+    },
+
+    listTickets: async () => {
+      const events = await readAllEvents()
+      const tickets = materializeTicketsFromEvents({ events })
+      return sortTickets({ tickets: tickets.values() })
     },
 
     getTicket: async ({ ticketId }) => {
-      const tickets = await materializeTickets()
+      const events = await readAllEvents()
+      const tickets = materializeTicketsFromEvents({ events })
       return tickets.get(ticketId) ?? null
     },
 
@@ -269,12 +359,61 @@ export async function createTicketsStore(opts: {
       return events.filter(e => e.ticketId === ticketId)
     },
 
+    readSnapshot: async () => {
+      const events = await readAllEvents()
+      const tickets = materializeTicketsFromEvents({ events })
+      const eventsByTicket = groupEventsByTicket({ events })
+      return {
+        tickets: sortTickets({ tickets: tickets.values() }),
+        eventsByTicket
+      }
+    },
+
     sync: async () => {
       return await git.sync()
     },
 
     setStatus
   }
+}
+
+function parseDependencyList(opts: { readonly value: unknown }): string[] {
+  if (!Array.isArray(opts.value)) return []
+  const values = opts.value.filter((item): item is string => typeof item === "string")
+  return normalizeTicketRefs(values)
+}
+
+function readDependencyUpdate(opts: {
+  readonly payload: Record<string, unknown>
+  readonly key: "dependsOn" | "blocks"
+}): string[] | null {
+  if (!Object.prototype.hasOwnProperty.call(opts.payload, opts.key)) {
+    return null
+  }
+  return parseDependencyList({ value: opts.payload[opts.key] })
+}
+
+function applyDerivedBlocks(tickets: Map<string, TicketSummary>): Map<string, TicketSummary> {
+  const derived = new Map<string, Set<string>>()
+  for (const ticket of tickets.values()) {
+    for (const dep of ticket.dependsOn) {
+      const set = derived.get(dep) ?? new Set<string>()
+      set.add(ticket.ticketId)
+      derived.set(dep, set)
+    }
+  }
+
+  for (const [ticketId, blockedBy] of derived) {
+    const current = tickets.get(ticketId)
+    if (!current) continue
+    const merged = normalizeTicketRefs([...current.blocks, ...blockedBy])
+    tickets.set(ticketId, {
+      ...current,
+      blocks: merged
+    })
+  }
+
+  return tickets
 }
 
 function safeJsonParse(text: string): unknown {

@@ -23,6 +23,40 @@ export function parseTicketNumber(ticketId: string): number | null {
   return Math.trunc(n)
 }
 
+export function normalizeTicketRef(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const raw = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed
+  if (!raw) return null
+  const upper = raw.toUpperCase()
+  if (upper.startsWith("T-")) {
+    const n = parseTicketNumber(upper)
+    return n === null ? null : formatTicketId(n)
+  }
+  if (/^\d+$/.test(raw)) {
+    return formatTicketId(Number(raw))
+  }
+  return null
+}
+
+export function normalizeTicketRefs(inputs: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of inputs) {
+    const normalized = normalizeTicketRef(raw)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    out.push(normalized)
+  }
+  out.sort((a, b) => {
+    const an = parseTicketNumber(a) ?? 0
+    const bn = parseTicketNumber(b) ?? 0
+    if (an !== bn) return an - bn
+    return a.localeCompare(b)
+  })
+  return out
+}
+
 export function stableStringify(value: unknown): string {
   return JSON.stringify(stableSort(value))
 }

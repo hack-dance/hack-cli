@@ -2,6 +2,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 
+import { shouldRunNetwork } from "./helpers/ci.ts"
+
 import { resolveGatewayConfig } from "../src/control-plane/extensions/gateway/config.ts"
 import { createGatewayToken, revokeGatewayToken } from "../src/control-plane/extensions/gateway/tokens.ts"
 import { resolveDaemonPaths } from "../src/daemon/paths.ts"
@@ -12,7 +14,7 @@ import { findProjectContext } from "../src/lib/project.ts"
 import { isRecord } from "../src/lib/guards.ts"
 import { upsertProjectRegistration } from "../src/lib/projects-registry.ts"
 
-const shouldRun = process.env.HACK_GATEWAY_E2E === "1"
+const shouldRun = process.env.HACK_GATEWAY_E2E === "1" && shouldRunNetwork
 const runTest = shouldRun ? test : test.skip
 
 type GatewayE2eContext = {

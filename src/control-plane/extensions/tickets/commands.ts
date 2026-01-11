@@ -1,6 +1,7 @@
 import { display } from "../../../ui/display.ts"
 import { gumConfirm, isGumAvailable } from "../../../ui/gum.ts"
 import { isTty } from "../../../ui/terminal.ts"
+import { runTicketsTui } from "../../../tui/tickets-tui.ts"
 
 import { createTicketsStore } from "./store.ts"
 import { checkTicketsAgentDocs, removeTicketsAgentDocs, upsertTicketsAgentDocs } from "./agent-docs.ts"
@@ -14,6 +15,7 @@ import {
   type TicketsRepoUntrackStatus
 } from "./repo-state.ts"
 import { checkTicketsSkill, installTicketsSkill, removeTicketsSkill } from "./tickets-skill.ts"
+import { normalizeTicketRef, normalizeTicketRefs } from "./util.ts"
 
 import type { ExtensionCommand, ExtensionCommandContext } from "../types.ts"
 
@@ -174,9 +176,29 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         bodyStdin: parsed.value.bodyStdin
       })
 
+      const dependsOnResult = resolveTicketRefs({
+        values: parsed.value.dependsOn,
+        label: "--depends-on"
+      })
+      if (!dependsOnResult.ok) {
+        ctx.logger.error({ message: dependsOnResult.error })
+        return 1
+      }
+
+      const blocksResult = resolveTicketRefs({
+        values: parsed.value.blocks,
+        label: "--blocks"
+      })
+      if (!blocksResult.ok) {
+        ctx.logger.error({ message: blocksResult.error })
+        return 1
+      }
+
       const created = await store.createTicket({
         title,
         body,
+        ...(dependsOnResult.refs.length > 0 ? { dependsOn: dependsOnResult.refs } : {}),
+        ...(blocksResult.refs.length > 0 ? { blocks: blocksResult.refs } : {}),
         actor: parsed.value.actor
       })
 
@@ -200,6 +222,140 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
           ["updated_at", created.ticket.updatedAt]
         ]
       })
+      return 0
+    }
+  },
+  {
+    name: "update",
+    summary: "Update a ticket",
+    scope: "project",
+    handler: async ({ ctx, args }) => {
+      if (!ctx.project) {
+        ctx.logger.error({ message: "No project found. Run inside a repo." })
+        return 1
+      }
+
+      const parsed = parseTicketsArgs({ args })
+      if (!parsed.ok) {
+        ctx.logger.error({ message: parsed.error })
+        return 1
+      }
+
+      const ticketId = (parsed.value.rest[0] ?? "").trim()
+      if (!ticketId) {
+        ctx.logger.error({
+          message:
+            "Usage: hack x tickets update <ticket-id> [--title \"...\"] [--body \"...\"] [--body-file <path>] [--body-stdin] [--depends-on \"...\"] [--blocks \"...\"] [--clear-depends-on] [--clear-blocks] [--json]"
+        })
+        return 1
+      }
+
+      const title = parsed.value.title?.trim()
+      if (parsed.value.title !== undefined && !title) {
+        ctx.logger.error({ message: "Title cannot be empty." })
+        return 1
+      }
+
+      if (parsed.value.clearDependsOn && parsed.value.dependsOn.length > 0) {
+        ctx.logger.error({ message: "--clear-depends-on cannot be combined with --depends-on." })
+        return 1
+      }
+
+      if (parsed.value.clearBlocks && parsed.value.blocks.length > 0) {
+        ctx.logger.error({ message: "--clear-blocks cannot be combined with --blocks." })
+        return 1
+      }
+
+      const bodyRequested =
+        parsed.value.body !== undefined ||
+        parsed.value.bodyFile !== undefined ||
+        parsed.value.bodyStdin
+
+      const body = bodyRequested ?
+          await resolveTicketBody({
+            body: parsed.value.body,
+            bodyFile: parsed.value.bodyFile,
+            bodyStdin: parsed.value.bodyStdin,
+            allowEmpty: true
+          })
+        : undefined
+
+      const dependsOnResult = parsed.value.dependsOn.length > 0 ?
+          resolveTicketRefs({ values: parsed.value.dependsOn, label: "--depends-on" })
+        : { ok: true as const, refs: [] }
+
+      if (!dependsOnResult.ok) {
+        ctx.logger.error({ message: dependsOnResult.error })
+        return 1
+      }
+
+      const blocksResult = parsed.value.blocks.length > 0 ?
+          resolveTicketRefs({ values: parsed.value.blocks, label: "--blocks" })
+        : { ok: true as const, refs: [] }
+
+      if (!blocksResult.ok) {
+        ctx.logger.error({ message: blocksResult.error })
+        return 1
+      }
+
+      const dependsOn = parsed.value.clearDependsOn ?
+          []
+        : parsed.value.dependsOn.length > 0 ?
+          dependsOnResult.refs
+        : undefined
+
+      const blocks = parsed.value.clearBlocks ?
+          []
+        : parsed.value.blocks.length > 0 ?
+          blocksResult.refs
+        : undefined
+
+      const hasUpdates =
+        title !== undefined ||
+        bodyRequested ||
+        dependsOn !== undefined ||
+        blocks !== undefined
+
+      if (!hasUpdates) {
+        ctx.logger.error({ message: "No updates provided." })
+        return 1
+      }
+
+      await maybeEnsureTicketsSetup({ ctx, json: parsed.value.json })
+
+      const store = await createTicketsStore({
+        projectRoot: ctx.project.projectRoot,
+        projectId: ctx.projectId,
+        projectName: ctx.projectName,
+        controlPlaneConfig: ctx.controlPlaneConfig,
+        logger: ctx.logger
+      })
+
+      const updated = await store.updateTicket({
+        ticketId,
+        ...(title !== undefined ? { title } : {}),
+        ...(bodyRequested ? { body } : {}),
+        ...(dependsOn !== undefined ? { dependsOn } : {}),
+        ...(blocks !== undefined ? { blocks } : {}),
+        actor: parsed.value.actor
+      })
+
+      if (!updated.ok) {
+        ctx.logger.error({ message: updated.error })
+        return 1
+      }
+
+      if (parsed.value.json) {
+        process.stdout.write(`${JSON.stringify({ ok: true, ticketId }, null, 2)}\n`)
+        return 0
+      }
+
+      await display.panel({
+        title: "Ticket updated",
+        tone: "success",
+        lines: [`${ticketId} updated`]
+      })
+
       return 0
     }
   },
@@ -253,6 +409,32 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
     }
   },
   {
+    name: "tui",
+    summary: "Open tickets TUI",
+    scope: "project",
+    handler: async ({ ctx, args }) => {
+      if (!ctx.project) {
+        ctx.logger.error({ message: "No project found. Run inside a repo." })
+        return 1
+      }
+
+      if (args.length > 0) {
+        ctx.logger.error({ message: "Usage: hack x tickets tui" })
+        return 1
+      }
+
+      await maybeEnsureTicketsSetup({ ctx, json: false })
+
+      return await runTicketsTui({
+        projectRoot: ctx.project.projectRoot,
+        projectId: ctx.projectId,
+        projectName: ctx.projectName,
+        controlPlaneConfig: ctx.controlPlaneConfig,
+        logger: ctx.logger
+      })
+    }
+  },
+  {
     name: "show",
     summary: "Show a ticket",
     scope: "project",
@@ -302,6 +484,8 @@ export const TICKETS_COMMANDS: readonly ExtensionCommand[] = [
         entries: [
           ["title", ticket.title],
           ["status", ticket.status],
+          ["depends_on", ticket.dependsOn.join(", ")],
+          ["blocks", ticket.blocks.join(", ")],
           ["created_at", ticket.createdAt],
           ["updated_at", ticket.updatedAt],
           ["project_id", ticket.projectId ?? ""],
@@ -444,6 +628,10 @@ type TicketsArgs = {
   readonly body?: string
   readonly bodyFile?: string
   readonly bodyStdin: boolean
+  readonly dependsOn: readonly string[]
+  readonly blocks: readonly string[]
+  readonly clearDependsOn: boolean
+  readonly clearBlocks: boolean
   readonly actor?: string
   readonly json: boolean
   readonly rest: readonly string[]
@@ -473,6 +661,10 @@ function parseTicketsArgs(opts: { readonly args: readonly string[] }): TicketsPa
   let body: string | undefined
   let bodyFile: string | undefined
   let bodyStdin = false
+  const dependsOn: string[] = []
+  const blocks: string[] = []
+  let clearDependsOn = false
+  let clearBlocks = false
   let actor: string | undefined
   let json = false
 
@@ -538,6 +730,42 @@ function parseTicketsArgs(opts: { readonly args: readonly string[] }): TicketsPa
       continue
     }
 
+    if (token === "--clear-depends-on") {
+      clearDependsOn = true
+      continue
+    }
+
+    if (token === "--clear-blocks") {
+      clearBlocks = true
+      continue
+    }
+
+    if (token.startsWith("--depends-on=")) {
+      dependsOn.push(...splitTicketRefs(token.slice("--depends-on=".length)))
+      continue
+    }
+
+    if (token === "--depends-on") {
+      const value = takeValue(token, opts.args[i + 1])
+      if (!value) return { ok: false, error: "--depends-on requires a value." }
+      dependsOn.push(...splitTicketRefs(value))
+      i += 1
+      continue
+    }
+
+    if (token.startsWith("--blocks=")) {
+      blocks.push(...splitTicketRefs(token.slice("--blocks=".length)))
+      continue
+    }
+
+    if (token === "--blocks") {
+      const value = takeValue(token, opts.args[i + 1])
+      if (!value) return { ok: false, error: "--blocks requires a value." }
+      blocks.push(...splitTicketRefs(value))
+      i += 1
+      continue
+    }
+
     if (token.startsWith("--actor=")) {
       actor = token.slice("--actor=".length)
       continue
@@ -565,6 +793,10 @@ function parseTicketsArgs(opts: { readonly args: readonly string[] }): TicketsPa
       ...(body ? { body } : {}),
       ...(bodyFile ? { bodyFile } : {}),
       bodyStdin,
+      dependsOn,
+      blocks,
+      clearDependsOn,
+      clearBlocks,
       ...(actor ? { actor } : {}),
       json,
       rest
@@ -576,22 +808,65 @@ async function resolveTicketBody(opts: {
   readonly body?: string
   readonly bodyFile?: string
   readonly bodyStdin: boolean
+  readonly allowEmpty?: boolean
 }): Promise<string | undefined> {
+  const allowEmpty = opts.allowEmpty ?? false
   if (opts.bodyStdin) {
     const text = await Bun.stdin.text()
     const trimmed = text.trimEnd()
-    return trimmed.length > 0 ? trimmed : undefined
+    if (trimmed.length > 0) return trimmed
+    return allowEmpty ? "" : undefined
   }
 
   const bodyFile = (opts.bodyFile ?? "").trim()
   if (bodyFile.length > 0) {
     const text = await Bun.file(bodyFile).text()
     const trimmed = text.trimEnd()
-    return trimmed.length > 0 ? trimmed : undefined
+    if (trimmed.length > 0) return trimmed
+    return allowEmpty ? "" : undefined
   }
 
   const body = (opts.body ?? "").trimEnd()
-  return body.length > 0 ? body : undefined
+  if (body.length > 0) return body
+  return allowEmpty ? "" : undefined
+}
+
+function splitTicketRefs(value: string): string[] {
+  return value
+    .split(/[,\s]+/)
+    .map(part => part.trim())
+    .filter(part => part.length > 0)
+}
+
+function resolveTicketRefs(opts: {
+  readonly values: readonly string[]
+  readonly label: string
+}):
+  | { readonly ok: true; readonly refs: string[] }
+  | { readonly ok: false; readonly error: string } {
+  if (opts.values.length === 0) {
+    return { ok: true, refs: [] }
+  }
+
+  const invalid: string[] = []
+  const normalized: string[] = []
+  for (const value of opts.values) {
+    const parsed = normalizeTicketRef(value)
+    if (!parsed) {
+      invalid.push(value)
+    } else {
+      normalized.push(parsed)
+    }
+  }
+
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      error: `Invalid ${opts.label} ticket(s): ${invalid.join(", ")}`
+    }
+  }
+
+  return { ok: true, refs: normalizeTicketRefs(normalized) }
 }
 
 async function maybeEnsureTicketsSetup(opts: {
